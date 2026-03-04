@@ -1,0 +1,111 @@
+name: Build Windows Baseline (SSE4, No AVX)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g., v3.10.0)"
+        required: true
+        default: "v3.10.0"
+        type: string
+  push:
+    branches:
+      - build/windows-baseline-sse4
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-baseline:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+        env:
+          BUN_INSTALL_ALLOW_SCRIPTS: "@ast-grep/napi"
+
+      - name: Verify Bun baseline target info
+        run: |
+          echo "Bun version: $(bun --version)"
+          echo "Platform: windows-x64-baseline"
+          echo "Target: bun-windows-x64-baseline (SSE4.2, no AVX/AVX2)"
+
+      - name: Build windows-x64-baseline binary
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 15
+          shell: bash
+          command: |
+            mkdir -p packages/windows-x64-baseline/bin
+            bun build src/cli/index.ts \
+              --compile \
+              --minify \
+              --target=bun-windows-x64-baseline \
+              --outfile=packages/windows-x64-baseline/bin/oh-my-opencode.exe
+            
+            echo "Built binary:"
+            ls -lh packages/windows-x64-baseline/bin/oh-my-opencode.exe
+
+      - name: Verify binary properties
+        run: |
+          file packages/windows-x64-baseline/bin/oh-my-opencode.exe
+          echo "---"
+          echo "Binary size: $(du -h packages/windows-x64-baseline/bin/oh-my-opencode.exe | cut -f1)"
+
+      - name: Create release archive
+        run: |
+          cd packages/windows-x64-baseline
+          7z a -tzip ../../oh-my-opencode-windows-x64-baseline.zip bin/oh-my-opencode.exe
+          cd ../..
+          ls -lh oh-my-opencode-windows-x64-baseline.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oh-my-opencode-windows-x64-baseline
+          path: oh-my-opencode-windows-x64-baseline.zip
+          retention-days: 90
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version || 'v3.10.0' }}-baseline
+          name: "v3.10.0 Windows Baseline (SSE4, No AVX)"
+          body: |
+            ## oh-my-opencode v3.10.0 - Windows x64 Baseline Build
+            
+            **此版本专为不支持 AVX/AVX2 指令集的 CPU 编译。**
+            
+            ### 兼容性
+            - ✅ 仅需 SSE4.2 指令集
+            - ✅ 无需 AVX / AVX2 支持
+            - ✅ 兼容老旧 CPU（如 Intel Ivy Bridge 及更早、部分 VPS/虚拟机）
+            
+            ### 使用方法
+            1. 下载 `oh-my-opencode-windows-x64-baseline.zip`
+            2. 解压得到 `oh-my-opencode.exe`
+            3. 替换原有的 `oh-my-opencode.exe` 即可
+            
+            ### 编译信息
+            - Bun target: `bun-windows-x64-baseline`
+            - 基于 v3.10.0 源码编译
+          files: |
+            oh-my-opencode-windows-x64-baseline.zip
+          draft: false
+          prerelease: false
