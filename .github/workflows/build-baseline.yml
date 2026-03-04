@@ -44,6 +44,46 @@ jobs:
           echo "Platform: windows-x64-baseline"
           echo "Target: bun-windows-x64-baseline (SSE4.2, no AVX/AVX2)"
 
+      - name: Pre-download baseline compile target
+        shell: bash
+        run: |
+          BUN_VERSION=$(bun --version)
+          PLATFORM="windows-x64-baseline"
+          PKG_NAME="bun-${PLATFORM}"
+          CACHE_DIR=$(bun pm cache)
+          CACHE_DEST="${CACHE_DIR}/${PKG_NAME}-v${BUN_VERSION}"
+
+          if [[ -f "$CACHE_DEST" ]]; then
+            echo "✓ Compile target already cached at ${CACHE_DEST}"
+            exit 0
+          fi
+
+          echo "Pre-downloading ${PKG_NAME} v${BUN_VERSION} to ${CACHE_DEST}"
+          TARBALL_URL="https://registry.npmjs.org/@oven/bun-${PLATFORM}/-/bun-${PLATFORM}-${BUN_VERSION}.tgz"
+          echo "URL: ${TARBALL_URL}"
+
+          mkdir -p "$(dirname "$CACHE_DEST")"
+          TMP_DIR=$(mktemp -d)
+
+          # Download and extract the bun binary from npm tarball
+          curl -fsSL --retry 5 --retry-delay 5 "${TARBALL_URL}" | tar -xzf - -C "${TMP_DIR}"
+
+          BIN_NAME="bun.exe"
+
+          # npm tarball has package/bin/bun structure
+          if [[ -f "${TMP_DIR}/package/bin/${BIN_NAME}" ]]; then
+            cp "${TMP_DIR}/package/bin/${BIN_NAME}" "${CACHE_DEST}"
+          elif [[ -f "${TMP_DIR}/package/${BIN_NAME}" ]]; then
+            cp "${TMP_DIR}/package/${BIN_NAME}" "${CACHE_DEST}"
+          else
+            echo "Could not find ${BIN_NAME} in tarball, listing contents:"
+            find "${TMP_DIR}" -type f
+            exit 1
+          fi
+
+          echo "✓ Pre-downloaded to ${CACHE_DEST}"
+          ls -lh "${CACHE_DEST}"
+
       - name: Build windows-x64-baseline binary
         uses: nick-fields/retry@v3
         with:
